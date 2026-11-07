@@ -1,0 +1,9 @@
+# Kuku's input pack is confidential: never commit screenplays or outputs that quote them
+*.txt
+!requirements.txt
+outputs/
+.cache/
+__pycache__/
+*.pyc
+.env
+Solution_Doc.pdf
