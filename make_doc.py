@@ -6,17 +6,68 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Flowable
+from reportlab.lib.enums import TA_CENTER
 
 REPO_URL = "https://github.com/gunasekharkaranam/kuku-promo-finder"        # e.g. https://github.com/<you>/kuku-promo-finder
 OUTPUTS_URL = "https://drive.google.com/drive/folders/1L1PLHQtTvaRCHe4oTpr5IvjGX_tAT0cc?usp=sharing"     # Google Drive folder with the raw outputs
 VIDEO_URL = ""       # optional walkthrough video
 
-BLUE, PINK = colors.HexColor("#1D3F99"), colors.HexColor("#D6336C")
-base = ParagraphStyle("b", fontName="Helvetica", fontSize=9.2, leading=11.4, spaceAfter=2.5)
-H = ParagraphStyle("h", parent=base, fontName="Helvetica-Bold", fontSize=10, textColor=BLUE, spaceBefore=4, spaceAfter=2)
-T = ParagraphStyle("t", parent=base, fontName="Helvetica-Bold", fontSize=14, textColor=PINK, leading=17)
-small = ParagraphStyle("s", parent=base, fontSize=7.8, leading=9.3, spaceAfter=0)
+# Temple palette: olive, beige, sandstone and brass
+OLIVE = colors.HexColor("#556B2F")
+DARK_OLIVE = colors.HexColor("#3B4A1F")
+BEIGE = colors.HexColor("#F5EFDC")
+SAND = colors.HexColor("#E9DFC2")
+BRASS = colors.HexColor("#A88B3D")
+INK = colors.HexColor("#3A3226")
+BLUE = PINK = OLIVE
+base = ParagraphStyle("b", fontName="Times-Roman", fontSize=9.6, leading=11.8, spaceAfter=2.5, textColor=INK)
+H = ParagraphStyle("h", parent=base, fontName="Times-Bold", fontSize=11.2, textColor=DARK_OLIVE, spaceBefore=5, spaceAfter=2)
+T = ParagraphStyle("t", parent=base, fontName="Times-Bold", fontSize=18, textColor=DARK_OLIVE, leading=21, alignment=TA_CENTER,
+                   spaceAfter=1)
+SUB = ParagraphStyle("sub", parent=base, fontName="Times-Italic", fontSize=10, textColor=BRASS, alignment=TA_CENTER, spaceAfter=3)
+NAME = ParagraphStyle("name", parent=base, fontName="Times-Bold", fontSize=11.5, textColor=INK, alignment=TA_CENTER, spaceAfter=0.5)
+CENTER = ParagraphStyle("c", parent=base, fontSize=8.8, leading=11, alignment=TA_CENTER, spaceAfter=0.5)
+small = ParagraphStyle("s", parent=base, fontSize=8.2, leading=9.6, spaceAfter=0)
+
+
+class Ornament(Flowable):
+    """A temple-style divider: rule - small diamond - big diamond - small diamond - rule."""
+    def __init__(self, width=None, gap=4):
+        super().__init__(); self.w = width; self.gap = gap
+
+    def wrap(self, aw, ah):
+        self.width = self.w or aw
+        return self.width, 8 + self.gap
+
+    def _diamond(self, c, x, y, r, fill):
+        p = c.beginPath(); p.moveTo(x, y + r); p.lineTo(x + r, y); p.lineTo(x, y - r); p.lineTo(x - r, y); p.close()
+        c.setFillColor(fill); c.drawPath(p, stroke=0, fill=1)
+
+    def draw(self):
+        c = self.canv; y = 4 + self.gap / 2; mid = self.width / 2
+        c.setStrokeColor(BRASS); c.setLineWidth(0.7)
+        c.line(self.width * 0.12, y, mid - 22, y); c.line(mid + 22, y, self.width * 0.88, y)
+        c.setLineWidth(0.3); c.line(self.width * 0.18, y - 2, mid - 26, y - 2); c.line(mid + 26, y - 2, self.width * 0.82, y - 2)
+        self._diamond(c, mid, y, 4.2, OLIVE)
+        self._diamond(c, mid - 13, y, 2.3, BRASS); self._diamond(c, mid + 13, y, 2.3, BRASS)
+
+
+def temple_page(c, doc):
+    """Beige page, double olive/brass frame with corner diamonds, page mark at the bottom."""
+    w, h = A4
+    c.saveState()
+    c.setFillColor(BEIGE); c.rect(0, 0, w, h, stroke=0, fill=1)
+    m = 0.55 * cm
+    c.setStrokeColor(OLIVE); c.setLineWidth(1.6); c.rect(m, m, w - 2 * m, h - 2 * m)
+    c.setStrokeColor(BRASS); c.setLineWidth(0.5); c.rect(m + 4, m + 4, w - 2 * m - 8, h - 2 * m - 8)
+    for x, y in ((m, m), (w - m, m), (m, h - m), (w - m, h - m)):
+        p = c.beginPath(); r = 5
+        p.moveTo(x, y + r); p.lineTo(x + r, y); p.lineTo(x, y - r); p.lineTo(x - r, y); p.close()
+        c.setFillColor(OLIVE); c.drawPath(p, stroke=0, fill=1)
+    c.setFillColor(BRASS); c.setFont("Times-Italic", 8)
+    c.drawCentredString(w / 2, m + 7, f"~  {doc.page}  ~")
+    c.restoreState()
 
 
 def load(run):
@@ -57,13 +108,16 @@ def reason(p):
 
 def top_table(r, k):
     ranked = sorted([p for p in r["ps"] if p.get("post_rank")], key=lambda p: p["post_rank"])[:k]
-    rows = [[cell("#"), cell("Segments (episode, start-end)"), cell("Hook (first 3 s)"), cell("Cliffhanger"), cell("Why post it here")]]
+    hd = ParagraphStyle("hd", parent=small, fontName="Times-Bold", textColor=BEIGE)
+    rows = [[Paragraph(x, hd) for x in ("#", "Segments (episode, start-end)", "Hook (first 3 s)", "Cliffhanger", "Why post it here")]]
     for p in ranked:
         rows.append([cell(str(p["post_rank"])), cell(f"{segs(p)} ({p['duration']:.0f}s)", 60), cell(p["hook"], 150),
                      cell(p["cliffhanger"], 150), cell(p.get("rank_reason") if r["info"]["mode"] == "llm" else reason(p), 150)])
-    t = Table(rows, colWidths=[0.6 * cm, 3.6 * cm, 5.0 * cm, 4.2 * cm, 4.6 * cm], repeatRows=1)
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCE6FF")),
-                           ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#9AA9D6")),
+    t = Table(rows, colWidths=[0.6 * cm, 3.4 * cm, 4.8 * cm, 4.1 * cm, 4.4 * cm], repeatRows=1)
+    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), OLIVE),
+                           ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#FBF7EA"), SAND]),
+                           ("BOX", (0, 0), (-1, -1), 0.9, DARK_OLIVE),
+                           ("INNERGRID", (0, 0), (-1, -1), 0.3, BRASS),
                            ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 1.5),
                            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5)]))
     return t
@@ -74,7 +128,7 @@ def P(t, s=base):
 
 
 def build(k, fs):
-    base.fontSize = fs; base.leading = fs * 1.24
+    base.fontSize = fs; base.leading = fs * 1.23
     for st_ in (H,): st_.leading = fs * 1.24 + 1
     return _build(k)
 
@@ -89,12 +143,17 @@ def _build(k):
     rs = stats(rules)
     ls = stats(llm) if llm else None
     main_run = llm or rules
-    link = lambda u, label: f'<link href="{u}" color="blue">{u}</link>' if u else f"({label}: see submission form)"
+    link = lambda u, label: (f'<link href="{u}"><font color="#556B2F"><u>{label}</u></font></link>' if u else "")
     st = []
-    st.append(P("Kuku Promo Finder: finding 20-60 s promos in microdrama screenplays", T))
-    st.append(P(f"Guna Sekhar Subbarao Karanam, B.Tech Electrical Engineering, IIT Kanpur | Problem 1 | "
-                f"Code: {link(REPO_URL, 'repo')} | Raw outputs: {link(OUTPUTS_URL, 'outputs')}"
-                + (f" | Video: {link(VIDEO_URL, 'video')}" if VIDEO_URL else ""), small))
+    st.append(P("Kuku Promo Finder", T))
+    st.append(P("Finding 20-60 second promos in microdrama screenplays  ·  AI Generalist Assignment, Problem 1", SUB))
+    st.append(P("Guna Sekhar Subbarao Karanam", NAME))
+    st.append(P("B.Tech Electrical Engineering, IIT Kanpur  ·  gunasekharkaranam@gmail.com", CENTER))
+    links = [x for x in (link(REPO_URL, "Code (GitHub): " + REPO_URL.replace("https://", "")),
+                         link(OUTPUTS_URL, "Raw outputs (Google Drive)"),
+                         link(VIDEO_URL, "Walkthrough video")) if x]
+    st.append(P("   ·   ".join(links), CENTER))
+    st.append(Ornament())
 
     st.append(P("1. Why this problem", H))
     st.append(P("Promos are how a new show gets its first viewers, and today an editor watches every episode to pick them, "
@@ -217,15 +276,15 @@ def _build(k):
                 "Next steps I would take: add the video itself (a vision model can see a slap or a look that text misses), "
                 "learn the score weights from editor choices and promo performance, and cut the clips automatically with ffmpeg."))
 
-    doc = SimpleDocTemplate("Solution_Doc.pdf", pagesize=A4, leftMargin=1.4 * cm, rightMargin=1.4 * cm,
-                            topMargin=1.1 * cm, bottomMargin=1.0 * cm, title="Kuku Promo Finder - Solution Doc",
+    doc = SimpleDocTemplate("Solution_Doc.pdf", pagesize=A4, leftMargin=1.55 * cm, rightMargin=1.55 * cm,
+                            topMargin=1.2 * cm, bottomMargin=1.25 * cm, title="Kuku Promo Finder - Solution Doc",
                             author="Guna Sekhar Subbarao Karanam")
-    doc.build(st)
+    doc.build(st, onFirstPage=temple_page, onLaterPages=temple_page)
     return doc.page
 
 
 def main():
-    for k, fs in [(8, 9.2), (7, 9.0), (6, 8.8), (5, 8.6), (5, 8.3)]:
+    for k, fs in [(8, 9.6), (8, 9.3), (7, 9.2), (6, 9.0), (6, 8.7), (5, 8.5), (5, 8.2)]:
         pages = build(k, fs)
         if pages <= 2:
             break
