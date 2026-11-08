@@ -11,6 +11,7 @@ from reportlab.lib.enums import TA_CENTER
 
 REPO_URL = "https://github.com/gunasekharkaranam/kuku-promo-finder"        # e.g. https://github.com/<you>/kuku-promo-finder
 OUTPUTS_URL = "https://drive.google.com/drive/folders/1L1PLHQtTvaRCHe4oTpr5IvjGX_tAT0cc?usp=sharing"     # Google Drive folder with the raw outputs
+APP_URL = "https://kukupromofinder.streamlit.app/"
 VIDEO_URL = ""       # optional walkthrough video
 
 # Temple palette: olive, beige, sandstone and brass
@@ -150,7 +151,8 @@ def _build(k):
     st.append(P("Finding 20-60 second promos in microdrama screenplays  ·  AI Generalist Assignment, Problem 1", SUB))
     st.append(P("Guna Sekhar Subbarao Karanam", NAME))
     st.append(P("B.Tech Electrical Engineering, IIT Kanpur  ·  gunasekharkaranam@gmail.com", CENTER))
-    links = [x for x in (link(REPO_URL, "Code (GitHub): " + REPO_URL.replace("https://", "")),
+    links = [x for x in (link(REPO_URL, "Code on GitHub"),
+                         link(APP_URL, "Live web app"),
                          link(OUTPUTS_URL, "Raw outputs (Google Drive)"),
                          link(VIDEO_URL, "Walkthrough video")) if x]
     st.append(P("   ·   ".join(links), CENTER))

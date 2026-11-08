@@ -1,5 +1,7 @@
 # Kuku Promo Finder
 
+**Live web app:** https://kukupromofinder.streamlit.app/  
+
 Raw outputs from the full input pack (rules-only and Gemini runs): https://drive.google.com/drive/folders/1L1PLHQtTvaRCHe4oTpr5IvjGX_tAT0cc?usp=sharing
 
 Reads a microdrama's episode screenplays and finds the best **20–60 second promos** (hook in the
