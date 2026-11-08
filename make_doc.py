@@ -17,6 +17,7 @@ VIDEO_URL = ""       # optional walkthrough video
 OLIVE = colors.HexColor("#556B2F")
 DARK_OLIVE = colors.HexColor("#3B4A1F")
 BEIGE = colors.HexColor("#F5EFDC")
+PAGE_BG = colors.HexColor("#FDFBF5")   # very light beige, close to white
 SAND = colors.HexColor("#E9DFC2")
 BRASS = colors.HexColor("#A88B3D")
 INK = colors.HexColor("#3A3226")
@@ -57,7 +58,7 @@ def temple_page(c, doc):
     """Beige page, double olive/brass frame with corner diamonds, page mark at the bottom."""
     w, h = A4
     c.saveState()
-    c.setFillColor(BEIGE); c.rect(0, 0, w, h, stroke=0, fill=1)
+    c.setFillColor(PAGE_BG); c.rect(0, 0, w, h, stroke=0, fill=1)
     m = 0.55 * cm
     c.setStrokeColor(OLIVE); c.setLineWidth(1.6); c.rect(m, m, w - 2 * m, h - 2 * m)
     c.setStrokeColor(BRASS); c.setLineWidth(0.5); c.rect(m + 4, m + 4, w - 2 * m - 8, h - 2 * m - 8)
@@ -115,7 +116,7 @@ def top_table(r, k):
                      cell(p["cliffhanger"], 150), cell(p.get("rank_reason") if r["info"]["mode"] == "llm" else reason(p), 150)])
     t = Table(rows, colWidths=[0.6 * cm, 3.4 * cm, 4.8 * cm, 4.1 * cm, 4.4 * cm], repeatRows=1)
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), OLIVE),
-                           ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#FBF7EA"), SAND]),
+                           ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#FFFDF8"), colors.HexColor("#F3EDDC")]),
                            ("BOX", (0, 0), (-1, -1), 0.9, DARK_OLIVE),
                            ("INNERGRID", (0, 0), (-1, -1), 0.3, BRASS),
                            ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 1.5),
