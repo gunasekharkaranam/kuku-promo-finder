@@ -13,7 +13,7 @@ pip install -r requirements.txt
 # 1) Free, no API key (rules only, ~13 s for 50 episodes)
 python -m promofinder.run --input "path/to/show_folder" --mode rules
 
-# 2) With an LLM (default: Gemini 2.5 Flash, free key at https://aistudio.google.com/apikey)
+# 2) With an LLM (default: Gemini 3.8 Flash, free key at https://aistudio.google.com/apikey)
 export GEMINI_API_KEY=...            # Windows: set GEMINI_API_KEY=...
 python -m promofinder.run --input "path/to/show_folder" --provider gemini
 
@@ -26,7 +26,7 @@ Windows one-click full run: `run_gemini.bat YOUR_GEMINI_KEY` (expects the show f
 ### Swap the model
 | Provider | Example |
 |---|---|
-| Gemini | `--provider gemini --model gemini-2.5-flash` (env `GEMINI_API_KEY`) |
+| Gemini | `--provider gemini --model gemini-3.8-flash` (env `GEMINI_API_KEY`) |
 | Any OpenAI-compatible API (OpenAI, Groq, OpenRouter, vLLM, Ollama, an internal gateway) | `--provider openai --model gpt-4o-mini --base-url https://.../v1` (env `OPENAI_API_KEY`) |
 | Anthropic | `--provider anthropic --model claude-haiku-4-5` (env `ANTHROPIC_API_KEY`) |
 | Offline test model | `--provider mock` |

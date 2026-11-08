@@ -123,7 +123,7 @@ def _build(k):
                 "review_sheet.csv, and checks the top 10 (about 10 minutes instead of watching 100 minutes)."))
     st.append(P("<b>Model is easy to swap:</b> <font face='Courier'>--provider gemini|openai|anthropic --model ... --base-url ...</font>. "
                 "'openai' covers any OpenAI-compatible API (Groq, OpenRouter, vLLM, a Kuku gateway). Every call is cached, so re-runs "
-                "are free and repeatable. A rules-only mode needs no key at all. There is also a Streamlit web app (upload episodes, "
+                "are free and repeatable. A rules-only mode needs no key at all. (This was tested for real: the first model I set, gemini-2.5-flash, was closed to new users, and the fix was one flag.) There is also a Streamlit web app (upload episodes, "
                 "pick a model, get the ranked list)."))
 
     st.append(P("4. Results on the full input pack (50 episodes)", H))
@@ -156,16 +156,24 @@ def _build(k):
                 "snaps or rejects these (counts are in quality.md), so no made-up time reaches the editor."))
 
     st.append(P("6. Scale and cost", H))
-    st.append(P("One 50-episode show is about 51 calls and roughly 170k input tokens. With Gemini 2.5 Flash at list price "
-                "($0.30 / $2.50 per million input / output tokens, thinking tokens counted as output), that is well under $1 per "
-                "show, about half with the batch API; the rules mode is free and takes about 13 s. Shows are independent, so many "
-                "can run in parallel, and new episodes only need their own call (cached results are reused). To make it better at "
-                "real volume: log which promos editors keep and how they perform (3-second hold rate, completion, installs per "
-                "view), then tune the score weights and the prompt on that data; keep the human check on the top picks."))
+    tok = (llm or {}).get("info", {}).get("tokens") if llm else None
+    if tok and tok.get("in"):
+        usd = tok["in"] * 0.75 / 1e6 + tok["out"] * 3.75 / 1e6
+        cost = (f"My full run used {tok['in'] / 1000:.0f}k input and {tok['out'] / 1000:.0f}k output tokens (thinking included) "
+                f"in {llm['info'].get('api_calls', 0)} calls, which is about ${usd:.2f} per 50-episode show at Gemini 3.8 Flash "
+                f"list price ($0.75 / $3.75 per million input / output tokens; I ran it on the free tier)")
+    else:
+        cost = ("One 50-episode show is about 51 calls and roughly 170k input tokens; at Gemini 3.8 Flash list price "
+                "($0.75 / $3.75 per million input / output tokens, thinking counted as output) that is under $1 per show")
+    st.append(P(cost + ". The batch API halves this (note: Google's list price doubles from Jan 2027). The rules mode is free "
+                "and takes about 13 s. Shows are independent, so many can run in parallel, and new episodes only need their own "
+                "call (cached results are reused). To make it better at real volume: log which promos editors keep and how they "
+                "perform (3-second hold rate, completion, installs per view), then tune the score weights and the prompt on that "
+                "data; keep the human check on the top picks."))
 
     st.append(P("7. AI tools I used, and one place they got it wrong", H))
     st.append(P("Claude (in the Claude app, as a coding agent) wrote most of the code and the first draft of this doc from my "
-                "design; Gemini 2.5 Flash is the runtime model; I reviewed the outputs by hand. Where the AI got it wrong: its first "
+                "design; Gemini 3.8 Flash is the runtime model; I reviewed the outputs by hand. Where the AI got it wrong: its first "
                 "rules version always returned 3 promos per episode, so quiet episodes (E8, E19) got weak picks that opened on quiet "
                 "moments with a book. I added a minimum score so the tool returns fewer, better promos. It also first produced blank "
                 "cliffhanger text when a clip ended on music only."))

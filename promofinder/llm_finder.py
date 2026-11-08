@@ -161,6 +161,8 @@ def find_llm_promos(episodes, client, per_episode=3, log=print, raw_dir=None):
         try:
             text = client.complete(SYSTEM, prompt)
         except LLMError as e:
+            if re.match(r"(400|401|403|404)", str(e)):
+                raise SystemExit(f"Model error (check the API key and model name): {str(e)[:500]}")
             log(f"  ep {ep.number}: model error {e}"); rejected.append({"episode": ep.number, "reason": str(e)}); continue
         if raw_dir:
             (raw_dir / f"episode_{ep.number:03d}.txt").write_text(text, encoding="utf-8")

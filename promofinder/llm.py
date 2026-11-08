@@ -1,6 +1,6 @@
 """One tiny interface over many model providers, so the model is easy to swap.
 
-    client = make_client("gemini", "gemini-2.5-flash")
+    client = make_client("gemini", "gemini-3.8-flash")
     text = client.complete(system, prompt)   # returns the model's raw text (JSON asked)
 
 Providers: gemini | openai (any OpenAI-compatible API: OpenAI, Groq, OpenRouter,
@@ -11,7 +11,7 @@ import hashlib, json, os, re, time
 from pathlib import Path
 import requests
 
-DEFAULT_MODELS = {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini",
+DEFAULT_MODELS = {"gemini": "gemini-3.8-flash", "openai": "gpt-4o-mini",
                   "anthropic": "claude-haiku-4-5", "mock": "mock"}
 
 
@@ -88,7 +88,7 @@ class GeminiClient(BaseClient):
         except (KeyError, IndexError):
             raise LLMError(f"bad response: {str(j)[:300]}")
         u = j.get("usageMetadata", {})
-        return text, {"in": u.get("promptTokenCount", 0), "out": u.get("candidatesTokenCount", 0)}
+        return text, {"in": u.get("promptTokenCount", 0), "out": u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0)}
 
 
 class OpenAIClient(BaseClient):
