@@ -47,18 +47,23 @@ if st.button("Find promos", type="primary", disabled=not files):
     if eps: args += ["--episodes", eps]
     if provider:
         env = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}[provider]
-        if key: os.environ[env] = key
         args += ["--provider", provider, "--model", model] + (["--base-url", base] if base else [])
     else:
+        env = None
         args += ["--mode", "rules"]
+    if env and not key:
+        st.error("Please paste your API key in the sidebar (or choose the free rules engine)."); st.stop()
     with st.spinner("Reading episodes and finding promos..."):
         try:
+            if env: os.environ[env] = key          # only for this run...
             out = run_main(args)
             st.session_state["out"] = str(out)
         except SystemExit as e:
             st.error(str(e))
         except Exception as e:
             st.error(f"Run failed: {e}")
+        finally:
+            if env: os.environ.pop(env, None)      # ...then removed, so no other visitor can use it
 
 if "out" in st.session_state:
     out = Path(st.session_state["out"])
