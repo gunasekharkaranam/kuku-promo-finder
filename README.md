@@ -28,7 +28,7 @@ Windows one-click full run: `run_gemini.bat YOUR_GEMINI_KEY` (expects the show f
 |---|---|
 | Gemini | `--provider gemini --model gemini-3.8-flash` (env `GEMINI_API_KEY`) |
 | Any OpenAI-compatible API (OpenAI, Groq, OpenRouter, vLLM, Ollama, an internal gateway) | `--provider openai --model gpt-4o-mini --base-url https://.../v1` (env `OPENAI_API_KEY`) |
-| Anthropic | `--provider anthropic --model claude-haiku-4-5` (env `ANTHROPIC_API_KEY`) |
+| Anthropic | `--provider anthropic --model claude-haiku-5-5` (env `ANTHROPIC_API_KEY`) |
 | Offline test model | `--provider mock` |
 
 Other options: `--episodes 1-10`, `--per-episode 3`, `--top 10`, `--min-interval 4` (seconds between

@@ -81,7 +81,8 @@ def build(k, fs):
 
 def _build(k):
     rules = load("rules_free_full")
-    llm = next((load(d.name) for d in sorted(Path("outputs").glob("llm_*")) if load(d.name)), None)
+    runs = [r for r in (load(d.name) for d in Path("outputs").glob("llm_*")) if r]
+    llm = max(runs, key=lambda r: len({s["episode"] for p in r["ps"] for s in p["segments"]}), default=None)
     partial = None
     if llm and len({s["episode"] for p in llm["ps"] for s in p["segments"]}) < 40:
         partial, llm = llm, None   # a run cut short by quota is reported, not used as the main result
@@ -166,7 +167,12 @@ def _build(k):
 
     st.append(P("6. Scale and cost", H))
     tok = (llm or {}).get("info", {}).get("tokens") if llm else None
-    if tok and tok.get("in"):
+    if tok and tok.get("in") and llm["info"].get("provider") != "gemini":
+        cost = (f"My full run with {llm['info'].get('model')} used {tok['in'] / 1000:.0f}k input and {tok['out'] / 1000:.0f}k "
+                f"output tokens in {llm['info'].get('api_calls', 0)} calls, so cost per show is these token counts times the "
+                f"model's list price (well under $1 for a small model). The same run on Gemini 3.8 Flash ($0.75 / $3.75 per "
+                f"million input / output tokens) costs about ${tok['in'] * 0.75 / 1e6 + tok['out'] * 3.75 / 1e6:.2f}")
+    elif tok and tok.get("in"):
         usd = tok["in"] * 0.75 / 1e6 + tok["out"] * 3.75 / 1e6
         cost = (f"My full run used {tok['in'] / 1000:.0f}k input and {tok['out'] / 1000:.0f}k output tokens (thinking included) "
                 f"in {llm['info'].get('api_calls', 0)} calls, which is about ${usd:.2f} per 50-episode show at Gemini 3.8 Flash "
@@ -182,7 +188,7 @@ def _build(k):
 
     st.append(P("7. AI tools I used, and one place they got it wrong", H))
     st.append(P("Claude (in the Claude app, as a coding agent) wrote most of the code and the first draft of this doc from my "
-                "design; Gemini 3.8 Flash is the runtime model; I reviewed the outputs by hand. Where the AI got it wrong: its first "
+                "design; Gemini (3.8 Flash by default; any model via one flag) is the runtime model; I reviewed the outputs by hand. Where the AI got it wrong: its first "
                 "rules version always returned 3 promos per episode, so quiet episodes (E8, E19) got weak picks that opened on quiet "
                 "moments with a book. I added a minimum score so the tool returns fewer, better promos. It also first produced blank "
                 "cliffhanger text when a clip ended on music only."))

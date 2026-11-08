@@ -217,6 +217,7 @@ def find_llm_promos(episodes, client, per_episode=3, log=print, raw_dir=None, ba
         group = episodes[i0:i1]
         label = f"ep {group[0].number}" + (f"-{group[-1].number}" if len(group) > 1 else "")
         prompt = build_prompt(episodes, i0, per_episode) if batch == 1 else build_batch_prompt(episodes, i0, i1, per_episode)
+        log(f"  {label}: asking {client.model} (a batch can take 2-5 min, please wait)...")
         try:
             text = client.complete(SYSTEM, prompt)
         except LLMError as e:

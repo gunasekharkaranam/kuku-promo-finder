@@ -12,7 +12,7 @@ from pathlib import Path
 import requests
 
 DEFAULT_MODELS = {"gemini": "gemini-3.8-flash", "openai": "gpt-4o-mini",
-                  "anthropic": "claude-haiku-4-5", "mock": "mock"}
+                  "anthropic": "claude-haiku-5-5", "mock": "mock"}
 
 
 class LLMError(RuntimeError):
@@ -110,7 +110,7 @@ class GeminiClient(BaseClient):
                      if "generateContent" in m.get("supportedGenerationMethods", [])]
         except Exception:
             return []
-        bad = ("image", "tts", "audio", "live", "embedding", "exp", "robotics", "computer", "native")
+        bad = ("image", "tts", "audio", "live", "omni", "embedding", "exp", "robotics", "computer", "native")
         flash = [n for n in names if "flash" in n and not any(b in n for b in bad) and n != self.model]
         # newest first, full flash before lite
         return sorted(flash, key=lambda n: ("lite" in n, [-int(x) for x in re.findall(r"\d+", n)[:2]]))
@@ -157,7 +157,7 @@ class AnthropicClient(BaseClient):
         if not self.key: raise LLMError("Set ANTHROPIC_API_KEY")
 
     def _call(self, system, prompt):
-        body = {"model": self.model, "max_tokens": 4000, "temperature": self.temperature, "system": system,
+        body = {"model": self.model, "max_tokens": 16000, "temperature": self.temperature, "system": system,
                 "messages": [{"role": "user", "content": prompt + "\n\nReply with JSON only."}]}
         j = self._post("https://api.anthropic.com/v1/messages",
                        {"x-api-key": self.key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, body)
