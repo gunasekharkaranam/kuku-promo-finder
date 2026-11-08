@@ -52,13 +52,14 @@ def mock_responder(episodes):
         if "Candidate promos" in prompt:
             ids = re.findall(r"^(P\d\d) ", prompt, re.M)
             return json.dumps({"ranking": [{"id": i, "reason": "mock ranking"} for i in ids[:10]]})
-        num = int(re.search(r"Find up to \d+ of the best promos in episode (\d+)", prompt).group(1))
+        nums = [int(x) for x in re.findall(r"===== EPISODE (\d+) =====", prompt)] or \
+               [int(re.search(r"Find up to \d+ of the best promos in episode (\d+)", prompt).group(1))]
         if not cache:
             for p in C.find_rule_promos(episodes):
                 cache.setdefault(p["segments"][0]["episode"], []).append(p)
         out = []
-        for p in cache.get(num, []):
-            out.append({"title": "mock", "segments": [{"episode": s["episode"], "start": s["start_ts"], "end": s["end_ts"]}
+        for p in [p for n in nums for p in cache.get(n, [])]:
+            out.append({"episode": p["segments"][0]["episode"], "title": "mock", "segments": [{"episode": s["episode"], "start": s["start_ts"], "end": s["end_ts"]}
                                                       for s in p["segments"]],
                         "hook": p["hook"], "cliffhanger": p["cliffhanger"], "why": "mock",
                         "hook_score": 7, "cliff_score": 7, "standalone_score": 6})
@@ -177,6 +178,7 @@ def main(argv=None):
     ap.add_argument("--base-url", default=None, help="for OpenAI-compatible APIs")
     ap.add_argument("--episodes", default=None, help="e.g. 1-10 or 1,5,9")
     ap.add_argument("--per-episode", type=int, default=3)
+    ap.add_argument("--batch", type=int, default=10, help="episodes per model call (1 = one call per episode)")
     ap.add_argument("--top", type=int, default=10, help="how many to rank for posting")
     ap.add_argument("--min-interval", type=float, default=4.0, help="seconds between API calls (free-tier limits)")
     ap.add_argument("--cache", default=".cache")
@@ -207,9 +209,11 @@ def main(argv=None):
         info.update(provider=client.provider, model=client.model)
         raw = out / "llm_raw"; raw.mkdir(exist_ok=True)
         print(f"Asking {client.provider}/{client.model} for up to {a.per_episode} promos per episode...")
-        promos, rejected = L.find_llm_promos(episodes, client, a.per_episode, raw_dir=raw)
+        if getattr(client, "fallbacks", None):
+            print(f"  (if {client.model} is out of quota, will try: {', '.join(client.fallbacks[:5])})")
+        promos, rejected = L.find_llm_promos(episodes, client, a.per_episode, raw_dir=raw, batch=a.batch)
         if not promos:
-            raise SystemExit("No promos found - check the API key / model name (see quality.md).")
+            raise SystemExit("No promos found - see the errors above (quota / key / model).")
         try:
             ranked, text = L.rank_with_llm(promos, episodes, client, a.top)
             (raw / "ranking.txt").write_text(text, encoding="utf-8")
@@ -219,7 +223,8 @@ def main(argv=None):
         except Exception as e:
             print(f"Ranking call failed ({e}); falling back to score order")
             ranked = rules_ranking(promos, a.top)
-        info.update(api_calls=client.calls, cache_hits=client.cache_hits, tokens=client.usage)
+        info.update(model=client.model, api_calls=client.calls, cache_hits=client.cache_hits, tokens=client.usage,
+                    batch=a.batch, episodes_covered=len({s["episode"] for p in promos for s in p["segments"]}))
     info["seconds"] = round(time.time() - t0, 1)
     write_outputs(out, promos, ranked, rejected, episodes, info)
     print(f"Done in {info['seconds']}s: {len(promos)} promos -> {out}")

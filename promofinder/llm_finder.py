@@ -153,41 +153,100 @@ def quality_flags(rule):
     return f
 
 
-def find_llm_promos(episodes, client, per_episode=3, log=print, raw_dir=None):
+BATCH_PROMPT = """SHOW PREMISE (from episode 1): {premise}
+STORY BEFORE THIS BATCH: {recap}
+
+{prev_block}{episodes}
+
+For EACH episode above, find up to {k} of its best promos (fewer if it has no strong moment).
+A promo's segments may use its own episode and, as an opening moment only, the end of the episode just before it.
+Total length of all segments of one promo must be 20-60 seconds (aim for 25-45). Timestamps are MM:SS.ss from the
+start of that segment's episode.
+Return JSON:
+{{"promos": [{{
+  "episode": <the episode this promo is mainly from>,
+  "title": "3-6 word working title",
+  "segments": [{{"episode": <n>, "start": "MM:SS.ss", "end": "MM:SS.ss"}}],
+  "hook": "what happens in the first 3 seconds",
+  "cliffhanger": "the unresolved moment it cuts on",
+  "why": "one line on why it works for a cold viewer",
+  "context_gap": "what a new viewer might not understand, or empty",
+  "hook_score": 1-10, "cliff_score": 1-10, "standalone_score": 1-10
+}}]}}"""
+
+
+def build_batch_prompt(episodes, i0, i1, k=3, prev_tail=40.0):
+    group = episodes[i0:i1]
+    recap = " | ".join(f"Ep{e.number}: {e.logline}" for e in episodes[max(0, i0 - 3):i0]) or "(this is the start of the show)"
+    prev_block = ""
+    if i0 > 0:
+        p = episodes[i0 - 1]
+        a = max(0.0, C.content_end(p) - prev_tail)
+        prev_block = f"END OF EPISODE {p.number} (last {int(prev_tail)}s, context / opening moment only):\n{transcript(p, a)}\n\n"
+    body = "\n\n".join(f"===== EPISODE {e.number} =====\nSUMMARY: {e.logline}\nTRANSCRIPT:\n{transcript(e)}" for e in group)
+    return BATCH_PROMPT.format(premise=episodes[0].logline, recap=recap, prev_block=prev_block,
+                               episodes=body, k=k)
+
+
+def _add(raw, ep_num, ep_map, allowed, found, rejected):
+    p, flags = validate(raw, ep_map, allowed)
+    if p is None:
+        rejected.append({"episode": ep_num, "reason": flags, "raw": raw}); return False
+    rule = C.rescore(p, ep_map)
+    flags = flags + quality_flags(rule)
+    llm = llm_scores(raw)
+    if any(C.overlap(p, q) > 0.5 for q in found):
+        rejected.append({"episode": ep_num, "reason": "duplicate of an earlier promo", "raw": raw}); return False
+    p.update(source="llm", title=raw.get("title", ""), hook=raw.get("hook", ""),
+             cliffhanger=raw.get("cliffhanger", ""), why=raw.get("why", ""),
+             context_gap=raw.get("context_gap", ""), llm_scores=llm, parts=rule, flags=flags,
+             kind="multi-segment" if len(p["segments"]) > 1 else "continuous",
+             score=final_score(llm, rule, flags))
+    found.append(p); return True
+
+
+def find_llm_promos(episodes, client, per_episode=3, log=print, raw_dir=None, batch=10):
+    """batch = episodes per model call. 1 is the most focused; 10 needs ~6 calls for 50 episodes
+    (free tiers can allow as few as 20 calls a day)."""
     ep_map = {e.number: e for e in episodes}
+    pos = {e.number: i for i, e in enumerate(episodes)}
     found, rejected = [], []
-    for i, ep in enumerate(episodes):
-        prompt = build_prompt(episodes, i, per_episode)
+    batch = max(1, batch)
+    for i0 in range(0, len(episodes), batch):
+        i1 = min(len(episodes), i0 + batch)
+        group = episodes[i0:i1]
+        label = f"ep {group[0].number}" + (f"-{group[-1].number}" if len(group) > 1 else "")
+        prompt = build_prompt(episodes, i0, per_episode) if batch == 1 else build_batch_prompt(episodes, i0, i1, per_episode)
         try:
             text = client.complete(SYSTEM, prompt)
         except LLMError as e:
-            if re.match(r"(400|401|403|404)", str(e)):
-                raise SystemExit(f"Model error (check the API key and model name): {str(e)[:500]}")
-            log(f"  ep {ep.number}: model error {e}"); rejected.append({"episode": ep.number, "reason": str(e)}); continue
+            from .llm import is_hard_stop
+            msg = str(e)
+            for ep in group: rejected.append({"episode": ep.number, "reason": msg[:300]})
+            if is_hard_stop(msg):
+                log(f"  {label}: STOPPING - no model left with quota / access: {msg[:300]}")
+                for ep in episodes[i1:]: rejected.append({"episode": ep.number, "reason": "not run: stopped early"})
+                break
+            log(f"  {label}: model error {msg[:200]}"); continue
         if raw_dir:
-            (raw_dir / f"episode_{ep.number:03d}.txt").write_text(text, encoding="utf-8")
+            name = f"episode_{group[0].number:03d}.txt" if batch == 1 else f"episodes_{group[0].number:03d}-{group[-1].number:03d}.txt"
+            (raw_dir / name).write_text(text, encoding="utf-8")
         try:
             data = parse_json(text)
         except Exception as e:
-            log(f"  ep {ep.number}: unparseable reply"); rejected.append({"episode": ep.number, "reason": f"bad JSON: {e}"}); continue
-        allowed = {ep.number} | ({episodes[i - 1].number} if i > 0 else set())
-        n_ok = 0
-        for raw in (data.get("promos") or [])[:per_episode]:
-            p, flags = validate(raw, ep_map, allowed)
-            if p is None:
-                rejected.append({"episode": ep.number, "reason": flags, "raw": raw}); continue
-            rule = C.rescore(p, ep_map)
-            flags = flags + quality_flags(rule)
-            llm = llm_scores(raw)
-            if any(C.overlap(p, q) > 0.5 for q in found):
-                rejected.append({"episode": ep.number, "reason": "duplicate of an earlier promo", "raw": raw}); continue
-            p.update(source="llm", title=raw.get("title", ""), hook=raw.get("hook", ""),
-                     cliffhanger=raw.get("cliffhanger", ""), why=raw.get("why", ""),
-                     context_gap=raw.get("context_gap", ""), llm_scores=llm, parts=rule, flags=flags,
-                     kind="multi-segment" if len(p["segments"]) > 1 else "continuous",
-                     score=final_score(llm, rule, flags))
-            found.append(p); n_ok += 1
-        log(f"  ep {ep.number}: {n_ok} promos")
+            log(f"  {label}: unparseable reply"); rejected.append({"episode": group[0].number, "reason": f"bad JSON: {e}"}); continue
+        counts = {e.number: 0 for e in group}
+        for raw in data.get("promos") or []:
+            try:
+                n = int(raw.get("episode") or raw["segments"][-1]["episode"])
+            except (KeyError, IndexError, TypeError, ValueError):
+                rejected.append({"episode": group[0].number, "reason": "no episode", "raw": raw}); continue
+            if n not in counts:
+                rejected.append({"episode": n, "reason": "episode not in this batch", "raw": raw}); continue
+            if counts[n] >= per_episode: continue
+            allowed = {n} | ({episodes[pos[n] - 1].number} if pos[n] > 0 else set())
+            if _add(raw, n, ep_map, allowed, found, rejected): counts[n] += 1
+        log(f"  {label}: " + ", ".join(f"ep{k}:{v}" for k, v in counts.items()))
     return found, rejected
 
 

@@ -19,6 +19,12 @@ class LLMError(RuntimeError):
     pass
 
 
+def is_hard_stop(msg):
+    """Errors that retrying will not fix: bad key/model, or the daily free quota is used up."""
+    return bool(re.match(r"(400|401|403|404)", msg)) or (msg.startswith("429") and
+            re.search(r"PerDay|per day|free_tier_requests|limit: \d+, mode", msg) is not None)
+
+
 class BaseClient:
     provider = "base"
 
@@ -34,12 +40,28 @@ class BaseClient:
         h = hashlib.sha256(f"{self.provider}|{self.model}|{self.temperature}|{system}|{prompt}".encode()).hexdigest()
         return self.cache / f"{h[:24]}.json"
 
-    def complete(self, system, prompt, retries=5):
+    fallbacks = []   # other models to try when this one is unavailable or out of quota
+
+    def complete(self, system, prompt, retries=4):
+        while True:
+            try:
+                return self._complete_one(system, prompt, retries)
+            except LLMError as e:
+                if not is_hard_stop(str(e)):
+                    raise
+                nxt = next((m for m in self.fallbacks if m not in self.tried), None)
+                if nxt is None:
+                    raise
+                print(f"  {self.model} unavailable ({str(e)[:60].strip()}...) -> switching to {nxt}")
+                self.tried.add(nxt); self.model = nxt
+
+    def _complete_one(self, system, prompt, retries):
+        if not hasattr(self, "tried"): self.tried = {self.model}
         f = self._key(system, prompt)
         if f.exists():
             self.cache_hits += 1
             return json.loads(f.read_text(encoding="utf-8"))["text"]
-        delay = 5.0
+        delay = 10.0
         for attempt in range(retries):
             wait = self.min_interval - (time.time() - self._last)
             if wait > 0: time.sleep(wait)
@@ -53,14 +75,16 @@ class BaseClient:
                 return text
             except LLMError as e:
                 msg = str(e)
-                if attempt == retries - 1 or not re.search(r"429|500|502|503|504|timeout|overloaded|RESOURCE", msg, re.I):
+                if attempt == retries - 1 or is_hard_stop(msg) or \
+                        not re.search(r"429|500|502|503|504|timeout|overloaded|RESOURCE", msg, re.I):
                     raise
+                print(f"    retry {attempt + 1}/{retries - 1} in {delay:.0f}s ({msg[:50].strip()}...)")
                 time.sleep(delay); delay = min(delay * 2, 60)
         raise LLMError("unreachable")
 
     def _post(self, url, headers, body):
         try:
-            r = requests.post(url, headers=headers, json=body, timeout=180)
+            r = requests.post(url, headers=headers, json=body, timeout=600)
         except requests.RequestException as e:
             raise LLMError(f"timeout/network: {e}")
         if r.status_code != 200:
@@ -75,6 +99,21 @@ class GeminiClient(BaseClient):
         super().__init__(model, **kw)
         self.key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not self.key: raise LLMError("Set GEMINI_API_KEY (free key: https://aistudio.google.com/apikey)")
+        self.fallbacks = self.list_flash_models()
+
+    def list_flash_models(self):
+        """Ask Google which text 'flash' models this key can use (each model has its own free quota)."""
+        try:
+            r = requests.get("https://generativelanguage.googleapis.com/v1beta/models",
+                             headers={"x-goog-api-key": self.key}, params={"pageSize": 200}, timeout=30)
+            names = [m["name"].split("/")[-1] for m in r.json().get("models", [])
+                     if "generateContent" in m.get("supportedGenerationMethods", [])]
+        except Exception:
+            return []
+        bad = ("image", "tts", "audio", "live", "embedding", "exp", "robotics", "computer", "native")
+        flash = [n for n in names if "flash" in n and not any(b in n for b in bad) and n != self.model]
+        # newest first, full flash before lite
+        return sorted(flash, key=lambda n: ("lite" in n, [-int(x) for x in re.findall(r"\d+", n)[:2]]))
 
     def _call(self, system, prompt):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"

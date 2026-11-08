@@ -82,6 +82,9 @@ def build(k, fs):
 def _build(k):
     rules = load("rules_free_full")
     llm = next((load(d.name) for d in sorted(Path("outputs").glob("llm_*")) if load(d.name)), None)
+    partial = None
+    if llm and len({s["episode"] for p in llm["ps"] for s in p["segments"]}) < 40:
+        partial, llm = llm, None   # a run cut short by quota is reported, not used as the main result
     rs = stats(rules)
     ls = stats(llm) if llm else None
     main_run = llm or rules
@@ -113,9 +116,9 @@ def _build(k):
                 "'teasers' (open on the hottest moment, then the build-up, cut just before it lands) and stretches over the episode "
                 "break. It scores hook (strong words, angry tones, impact sounds in the first 3 s), cliffhanger (question/threat at the "
                 "end, cut before the reply, the script's own 'cliffhanger' sound cue), stand-alone (few speakers, no 'remember when', "
-                "clear stakes like wife/sister/duke) and intensity. <b>LLM finder (AI).</b> For each episode the model gets the full "
+                "clear stakes like wife/sister/duke) and intensity. <b>LLM finder (AI).</b> The model gets each episode's full "
                 "transcript, the show premise, the last 3 episode summaries and the last 40 s of the previous episode, and returns up "
-                "to 3 promos as JSON (segments, hook, cliffhanger, why, 1-10 scores, what a stranger would miss). <b>Checker (code).</b> "
+                "to 3 promos per episode as JSON (episodes go 10 per call, so a show needs about 6 calls: some free tiers allow only 20 a day) (segments, hook, cliffhanger, why, 1-10 scores, what a stranger would miss). <b>Checker (code).</b> "
                 "Every model answer is validated: timestamps must exist, are snapped to clean cuts, too-short/too-long clips are "
                 "fixed or rejected, overlaps and duplicates are removed, and the rules engine re-scores it. Final score = 60% model + "
                 "40% rules, minus penalties for flags. <b>Ranking (AI).</b> One more call orders the top 24 for posting, with a reason, "
@@ -138,6 +141,12 @@ def _build(k):
         st.append(P(f"<b>Rules-only run</b> (no model): {rs['n']} promos covering {rs['eps']}/50 episodes in {rs['sec']:.0f} s at zero cost; "
                     f"mean {rs['mean']:.0f} s; {rs['multi']} multi-segment ({rs['cross']} across an episode break); all within 20-60 s. "
                     f"Strong hook (rule score 6+) in {rs['hook6']}/{rs['n']}, unresolved ending in {rs['cliff6']}/{rs['n']}."))
+    if partial:
+        pe = sorted({s["episode"] for p in partial["ps"] for s in p["segments"]})
+        st.append(P(f"<b>LLM run (partial):</b> the free Gemini tier stopped my full run early (daily request limit and "
+                    f"'model overloaded' errors), so the model results cover only episodes {', '.join(map(str, pe))} "
+                    f"({len(partial['ps'])} promos, in outputs/{partial['dir'].name}). The ranked list below is from the "
+                    f"rules-only run; the same command finishes the LLM run once quota resets (finished calls are cached)."))
     st.append(P(f"Top {k} to post first ({'LLM run' if llm else 'rules-only run'}); full list in promos.csv / report.md:", base))
     st.append(top_table(main_run, k))
     st.append(Spacer(1, 3))
@@ -163,7 +172,7 @@ def _build(k):
                 f"in {llm['info'].get('api_calls', 0)} calls, which is about ${usd:.2f} per 50-episode show at Gemini 3.8 Flash "
                 f"list price ($0.75 / $3.75 per million input / output tokens; I ran it on the free tier)")
     else:
-        cost = ("One 50-episode show is about 51 calls and roughly 170k input tokens; at Gemini 3.8 Flash list price "
+        cost = ("One 50-episode show is about 6 calls and roughly 170k input tokens; at Gemini 3.8 Flash list price "
                 "($0.75 / $3.75 per million input / output tokens, thinking counted as output) that is under $1 per show")
     st.append(P(cost + ". The batch API halves this (note: Google's list price doubles from Jan 2027). The rules mode is free "
                 "and takes about 13 s. Shows are independent, so many can run in parallel, and new episodes only need their own "
