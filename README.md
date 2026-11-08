@@ -1,5 +1,7 @@
 # Kuku Promo Finder
 
+Raw outputs from the full input pack (rules-only and Gemini runs): https://drive.google.com/drive/folders/1L1PLHQtTvaRCHe4oTpr5IvjGX_tAT0cc?usp=sharing
+
 Reads a microdrama's episode screenplays and finds the best **20–60 second promos** (hook in the
 first 3 seconds, cliffhanger at the end, makes sense to a stranger). For each promo it gives the
 episode and start/end timestamps of every segment, the hook, the cliffhanger, one line on why it

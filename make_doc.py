@@ -8,8 +8,8 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
-REPO_URL = ""        # e.g. https://github.com/<you>/kuku-promo-finder
-OUTPUTS_URL = ""     # Google Drive folder with the raw outputs
+REPO_URL = "https://github.com/gunasekharkaranam/kuku-promo-finder"        # e.g. https://github.com/<you>/kuku-promo-finder
+OUTPUTS_URL = "https://drive.google.com/drive/folders/1L1PLHQtTvaRCHe4oTpr5IvjGX_tAT0cc?usp=sharing"     # Google Drive folder with the raw outputs
 VIDEO_URL = ""       # optional walkthrough video
 
 BLUE, PINK = colors.HexColor("#1D3F99"), colors.HexColor("#D6336C")
