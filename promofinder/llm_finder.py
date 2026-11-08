@@ -206,48 +206,62 @@ def _add(raw, ep_num, ep_map, allowed, found, rejected):
 
 
 def find_llm_promos(episodes, client, per_episode=3, log=print, raw_dir=None, batch=10):
-    """batch = episodes per model call. 1 is the most focused; 10 needs ~6 calls for 50 episodes
-    (free tiers can allow as few as 20 calls a day)."""
+    """batch = episodes per model call. 10 needs ~6 calls for 50 episodes (some free tiers allow only 20 a day).
+    If a batch fails or the reply is broken, it is split in half and retried, down to one episode."""
+    from .llm import is_hard_stop
     ep_map = {e.number: e for e in episodes}
     pos = {e.number: i for i, e in enumerate(episodes)}
     found, rejected = [], []
-    batch = max(1, batch)
-    for i0 in range(0, len(episodes), batch):
-        i1 = min(len(episodes), i0 + batch)
+    state = {"stop": False}
+
+    def run_group(i0, i1):
+        if state["stop"]:
+            for ep in episodes[i0:i1]: rejected.append({"episode": ep.number, "reason": "not run: stopped early"})
+            return
         group = episodes[i0:i1]
         label = f"ep {group[0].number}" + (f"-{group[-1].number}" if len(group) > 1 else "")
-        prompt = build_prompt(episodes, i0, per_episode) if batch == 1 else build_batch_prompt(episodes, i0, i1, per_episode)
-        log(f"  {label}: asking {client.model} (a batch can take 2-5 min, please wait)...")
+        prompt = build_prompt(episodes, i0, per_episode) if len(group) == 1 else build_batch_prompt(episodes, i0, i1, per_episode)
+        log(f"  {label}: asking {client.model} (can take 2-5 min, please wait)...")
         try:
-            text = client.complete(SYSTEM, prompt)
+            text = client.complete(SYSTEM, prompt, check=parse_json)
         except LLMError as e:
-            from .llm import is_hard_stop
             msg = str(e)
-            for ep in group: rejected.append({"episode": ep.number, "reason": msg[:300]})
             if is_hard_stop(msg):
-                log(f"  {label}: STOPPING - no model left with quota / access: {msg[:300]}")
-                for ep in episodes[i1:]: rejected.append({"episode": ep.number, "reason": "not run: stopped early"})
-                break
-            log(f"  {label}: model error {msg[:200]}"); continue
+                state["stop"] = True
+                log(f"  {label}: stopping - no Gemini model has quota left on this key today. Results so far are kept.")
+                return run_group(i0, i1)
+            if len(group) > 1:
+                mid = i0 + len(group) // 2
+                log(f"  {label}: did not work ({msg[:60].strip()}), splitting into smaller parts")
+                run_group(i0, mid); run_group(mid, i1); return
+            log(f"  {label}: skipped after several tries ({msg[:80].strip()})")
+            rejected.append({"episode": group[0].number, "reason": msg[:300]}); return
         if raw_dir:
-            name = f"episode_{group[0].number:03d}.txt" if batch == 1 else f"episodes_{group[0].number:03d}-{group[-1].number:03d}.txt"
+            name = (f"episode_{group[0].number:03d}.txt" if len(group) == 1
+                    else f"episodes_{group[0].number:03d}-{group[-1].number:03d}.txt")
             (raw_dir / name).write_text(text, encoding="utf-8")
-        try:
-            data = parse_json(text)
-        except Exception as e:
-            log(f"  {label}: unparseable reply"); rejected.append({"episode": group[0].number, "reason": f"bad JSON: {e}"}); continue
+        data = parse_json(text)
         counts = {e.number: 0 for e in group}
-        for raw in data.get("promos") or []:
+        for raw in (data.get("promos") or []) if isinstance(data, dict) else []:
+            if not isinstance(raw, dict): continue
             try:
                 n = int(raw.get("episode") or raw["segments"][-1]["episode"])
             except (KeyError, IndexError, TypeError, ValueError):
-                rejected.append({"episode": group[0].number, "reason": "no episode", "raw": raw}); continue
+                if len(group) == 1: n = group[0].number
+                else:
+                    rejected.append({"episode": group[0].number, "reason": "no episode", "raw": raw}); continue
             if n not in counts:
                 rejected.append({"episode": n, "reason": "episode not in this batch", "raw": raw}); continue
             if counts[n] >= per_episode: continue
             allowed = {n} | ({episodes[pos[n] - 1].number} if pos[n] > 0 else set())
-            if _add(raw, n, ep_map, allowed, found, rejected): counts[n] += 1
-        log(f"  {label}: " + ", ".join(f"ep{k}:{v}" for k, v in counts.items()))
+            try:
+                if _add(raw, n, ep_map, allowed, found, rejected): counts[n] += 1
+            except Exception as e:  # never let one odd promo stop the run
+                rejected.append({"episode": n, "reason": f"could not read promo: {e}", "raw": raw})
+        log(f"  {label}: done -> " + ", ".join(f"ep{k}:{v}" for k, v in counts.items()))
+
+    for i0 in range(0, len(episodes), max(1, batch)):
+        run_group(i0, min(len(episodes), i0 + max(1, batch)))
     return found, rejected
 
 
@@ -272,7 +286,8 @@ def rank_with_llm(promos, episodes, client, n=10, pool=24):
         p["_pid"] = f"P{j + 1:02d}"
         segs = " + ".join(f"ep{s['episode']} {s['start_ts']}-{s['end_ts']}" for s in p["segments"])
         items.append(f"{p['_pid']} [{segs}, {p['duration']}s] hook: {p['hook']} | ends: {p['cliffhanger']} | why: {p['why']}")
-    text = client.complete(RANK_SYSTEM, RANK_PROMPT.format(premise=episodes[0].logline, items="\n".join(items), n=n))
+    text = client.complete(RANK_SYSTEM, RANK_PROMPT.format(premise=episodes[0].logline, items="\n".join(items), n=n),
+                           check=parse_json)
     data = parse_json(text)
     by = {p["_pid"]: p for p in pool_ps}
     order = []

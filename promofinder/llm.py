@@ -40,27 +40,33 @@ class BaseClient:
         h = hashlib.sha256(f"{self.provider}|{self.model}|{self.temperature}|{system}|{prompt}".encode()).hexdigest()
         return self.cache / f"{h[:24]}.json"
 
-    fallbacks = []   # other models to try when this one is unavailable or out of quota
+    fallbacks = []   # other models to try when this one is unavailable, busy or out of quota
 
-    def complete(self, system, prompt, retries=4):
+    def complete(self, system, prompt, retries=4, check=None):
+        """Return the model's text. `check(text)` may raise to reject a broken reply (it is then retried).
+        Transient errors are retried; if a model keeps failing or has no quota, the next model is tried."""
+        if not hasattr(self, "tried"): self.tried = {self.model}
         while True:
             try:
-                return self._complete_one(system, prompt, retries)
+                return self._complete_one(system, prompt, retries, check)
             except LLMError as e:
-                if not is_hard_stop(str(e)):
-                    raise
                 nxt = next((m for m in self.fallbacks if m not in self.tried), None)
                 if nxt is None:
                     raise
-                print(f"  {self.model} unavailable ({str(e)[:60].strip()}...) -> switching to {nxt}")
+                why = "no quota / no access" if is_hard_stop(str(e)) else "keeps failing"
+                print(f"  {self.model}: {why} -> switching to {nxt}")
                 self.tried.add(nxt); self.model = nxt
 
-    def _complete_one(self, system, prompt, retries):
-        if not hasattr(self, "tried"): self.tried = {self.model}
+    def _complete_one(self, system, prompt, retries, check):
         f = self._key(system, prompt)
         if f.exists():
-            self.cache_hits += 1
-            return json.loads(f.read_text(encoding="utf-8"))["text"]
+            text = json.loads(f.read_text(encoding="utf-8"))["text"]
+            try:
+                if check: check(text)
+                self.cache_hits += 1
+                return text
+            except Exception:
+                pass  # cached reply is broken: ask again
         delay = 10.0
         for attempt in range(retries):
             wait = self.min_interval - (time.time() - self._last)
@@ -70,15 +76,20 @@ class BaseClient:
                 text, usage = self._call(system, prompt)
                 self.calls += 1
                 self.usage["in"] += usage.get("in", 0); self.usage["out"] += usage.get("out", 0)
+                if check:
+                    try:
+                        check(text)
+                    except Exception as e:
+                        raise LLMError(f"bad reply (not valid JSON): {e}")
                 f.write_text(json.dumps({"provider": self.provider, "model": self.model, "text": text,
                                          "usage": usage}, ensure_ascii=False), encoding="utf-8")
                 return text
             except LLMError as e:
                 msg = str(e)
-                if attempt == retries - 1 or is_hard_stop(msg) or \
-                        not re.search(r"429|500|502|503|504|timeout|overloaded|RESOURCE", msg, re.I):
+                if is_hard_stop(msg) or attempt == retries - 1:
                     raise
-                print(f"    retry {attempt + 1}/{retries - 1} in {delay:.0f}s ({msg[:50].strip()}...)")
+                print(f"    {self.model} busy or gave a bad reply, waiting {delay:.0f}s and trying again "
+                      f"({attempt + 1}/{retries - 1})")
                 time.sleep(delay); delay = min(delay * 2, 60)
         raise LLMError("unreachable")
 
@@ -119,13 +130,16 @@ class GeminiClient(BaseClient):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         body = {"systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": self.temperature, "responseMimeType": "application/json"}}
+                "generationConfig": {"temperature": self.temperature, "responseMimeType": "application/json",
+                                     "maxOutputTokens": 32768}}
         j = self._post(url, {"x-goog-api-key": self.key, "Content-Type": "application/json"}, body)
         try:
             parts = j["candidates"][0]["content"]["parts"]
             text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
-        except (KeyError, IndexError):
+        except (KeyError, IndexError, TypeError):
             raise LLMError(f"bad response: {str(j)[:300]}")
+        if not text.strip():
+            raise LLMError(f"bad response: empty ({j.get('candidates', [{}])[0].get('finishReason', '?')})")
         u = j.get("usageMetadata", {})
         return text, {"in": u.get("promptTokenCount", 0), "out": u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0)}
 
