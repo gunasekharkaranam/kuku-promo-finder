@@ -59,7 +59,7 @@ def top_table(r, k):
     ranked = sorted([p for p in r["ps"] if p.get("post_rank")], key=lambda p: p["post_rank"])[:k]
     rows = [[cell("#"), cell("Segments (episode, start-end)"), cell("Hook (first 3 s)"), cell("Cliffhanger"), cell("Why post it here")]]
     for p in ranked:
-        rows.append([cell(str(p["post_rank"])), cell(f"{segs(p)} ({p["duration"]:.0f}s)", 60), cell(p["hook"], 150),
+        rows.append([cell(str(p["post_rank"])), cell(f"{segs(p)} ({p['duration']:.0f}s)", 60), cell(p["hook"], 150),
                      cell(p["cliffhanger"], 150), cell(p.get("rank_reason") if r["info"]["mode"] == "llm" else reason(p), 150)])
     t = Table(rows, colWidths=[0.6 * cm, 3.6 * cm, 5.0 * cm, 4.2 * cm, 4.6 * cm], repeatRows=1)
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCE6FF")),
