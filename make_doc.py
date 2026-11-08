@@ -59,8 +59,8 @@ def top_table(r, k):
     ranked = sorted([p for p in r["ps"] if p.get("post_rank")], key=lambda p: p["post_rank"])[:k]
     rows = [[cell("#"), cell("Segments (episode, start-end)"), cell("Hook (first 3 s)"), cell("Cliffhanger"), cell("Why post it here")]]
     for p in ranked:
-        rows.append([cell(str(p["post_rank"])), cell(f"{segs(p)} ({p['duration']:.0f}s)", 60), cell(p["hook"], 80),
-                     cell(p["cliffhanger"], 70), cell(p.get("rank_reason") if r["info"]["mode"] == "llm" else reason(p), 90)])
+        rows.append([cell(str(p["post_rank"])), cell(f"{segs(p)} ({p["duration"]:.0f}s)", 60), cell(p["hook"], 150),
+                     cell(p["cliffhanger"], 150), cell(p.get("rank_reason") if r["info"]["mode"] == "llm" else reason(p), 150)])
     t = Table(rows, colWidths=[0.6 * cm, 3.6 * cm, 5.0 * cm, 4.2 * cm, 4.6 * cm], repeatRows=1)
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCE6FF")),
                            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#9AA9D6")),
@@ -84,7 +84,7 @@ def _build(k):
     runs = [r for r in (load(d.name) for d in Path("outputs").glob("llm_*")) if r]
     llm = max(runs, key=lambda r: len({s["episode"] for p in r["ps"] for s in p["segments"]}), default=None)
     partial = None
-    if llm and len({s["episode"] for p in llm["ps"] for s in p["segments"]}) < 40:
+    if llm and len({s["episode"] for p in llm["ps"] for s in p["segments"]}) < 25:
         partial, llm = llm, None   # a run cut short by quota is reported, not used as the main result
     rs = stats(rules)
     ls = stats(llm) if llm else None
@@ -153,17 +153,32 @@ def _build(k):
     st.append(Spacer(1, 3))
 
     st.append(P("5. How I know it is good, and where it picks badly", H))
-    st.append(P("<b>Automatic checks</b> on every run (quality.md): length, hook and ending scores, coverage, duplicates, rejected model "
-                "answers, and the promos where the model and the rules disagree most, which go to a human first. <b>My manual review "
-                "of the rules-only top 10:</b> 4 I would post as they are (E15 thugs attack, E18 fire rescue, E3 guards drag the bride "
-                "out, E16 fight), 5 work but need context or give away a twist, 1 I would not post early (E36 'their dead Duke is "
-                "coming home' reveals the main twist). <b>Where it fails:</b> (1) Rules cannot judge meaning: the best premise promo "
-                "(E1, bride jilted at the altar for her sister) is not in the rules top 10 because its lines are quiet but cruel ('Not "
-                "anymore.'). (2) Keyword false alarms: a calm shot of 'dry wood catching fire in the hearth' scored 8.6 as a hook. "
-                "(3) Rules have no idea of spoilers; the LLM ranking step is told to hold back twists, which still needs checking. "
-                "(4) Near-duplicates: the same line ('God married us, Father!') opens two different promos. (5) Text only: a look or "
-                "a silent reaction that is great on screen is invisible here. (6) The LLM can invent or round timestamps; the checker "
-                "snaps or rejects these (counts are in quality.md), so no made-up time reaches the editor."))
+    if llm:
+        st.append(P("<b>Automatic checks</b> on every run (quality.md): length, coverage, duplicates, rejected or fixed model answers, "
+                    "and where the model and the rules disagree. <b>My check of the LLM top 10 against the script:</b> all 10 timestamps "
+                    "point at the moment the model describes (no invented lines), all are 32-48 s and stand alone. I would post 8 as they "
+                    "are. Two need care: #7 (E18 fire) ends just after the beam misses her, so the cliffhanger is weaker than the model "
+                    "says; and #1 and #2 are both the altar betrayal, so they should not go out back to back. The LLM put the premise "
+                    "(E1 jilted at the altar) first and held back the big twist (her 'beggar' husband is the Duke), which the rules-only "
+                    "ranking got wrong. <b>Where it fails:</b> (1) The rules are a poor judge of the model: agreement is near zero "
+                    "(r = 0.08) and most rule flags on the top 10 were false alarms, because a cruel but quiet line like 'Because he is "
+                    "marrying me.' has no 'hot' keyword. So the rules are useful to generate and sanity-check candidates, not to grade "
+                    "taste; a human still checks the top picks. (2) With 10 episodes per call the model was lazy: about 1 promo per "
+                    "episode instead of up to 3, and 11 quiet episodes got none (smaller batches fix this but cost more calls). "
+                    "(3) The model sometimes oversells: hook and cliffhanger text is a little more dramatic than the script. (4) The "
+                    "checker had to snap or fix 5 of 40 answers whose timestamps fell mid-line. (5) Text only: a look or silence that "
+                    "works on screen is invisible. (6) The free tier is fragile: daily limits and 'model overloaded' errors; the tool "
+                    "now retries, splits batches and switches model on its own."))
+    else:
+        st.append(P("<b>Automatic checks</b> on every run (quality.md): length, hook and ending scores, coverage, duplicates, rejected model "
+                    "answers, and the promos where the model and the rules disagree most, which go to a human first. <b>My manual review "
+                    "of the rules-only top 10:</b> 4 I would post as they are (E15 thugs attack, E18 fire rescue, E3 guards drag the bride "
+                    "out, E16 fight), 5 work but need context or give away a twist, 1 I would not post early (E36 'their dead Duke is "
+                    "coming home' reveals the main twist). <b>Where it fails:</b> (1) Rules cannot judge meaning: the best premise promo "
+                    "(E1, bride jilted at the altar for her sister) is not in the rules top 10 because its lines are quiet but cruel. "
+                    "(2) Keyword false alarms: a calm shot of 'dry wood catching fire in the hearth' scored 8.6 as a hook. (3) Rules have "
+                    "no idea of spoilers. (4) Near-duplicates: the same line opens two promos. (5) Text only: a look or a silent reaction "
+                    "is invisible here. (6) The LLM can invent or round timestamps; the checker snaps or rejects these."))
 
     st.append(P("6. Scale and cost", H))
     tok = (llm or {}).get("info", {}).get("tokens") if llm else None
